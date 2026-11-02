@@ -19,11 +19,13 @@
 
   <!-- Libreria oficial de Supabase (version fija para que nada cambie solo) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+  <!-- Libreria para dibujar codigos QR -->
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 
   <style>
     /* ---------- Variables de color (se cambian aqui y aplican en todo) ---------- */
     :root {
-      --fondo: #f5f65f8;
+      --fondo: #f5f6f8;
       --tarjeta: #ffffff;
       --texto: #1d2330;
       --suave: #667085;
@@ -96,6 +98,19 @@
     }
     #aviso.ok { background: var(--ok); }
     #aviso.error { background: var(--peligro); }
+
+    /* Etiqueta QR */
+    #detalleQR { text-align: center; }
+    #detalleQR svg { width: 180px; height: 180px; }
+    .etiqueta-codigo { font-size: 28px; font-weight: 700; margin-top: 4px; }
+
+    /* Al imprimir, solo se ve la etiqueta QR */
+    @media print {
+      body * { visibility: hidden; }
+      #detalleQR, #detalleQR * { visibility: visible; }
+      #detalleQR { position: absolute; left: 0; top: 0; border: 2px dashed #000; }
+      #detalleQR button { display: none; }
+    }
   </style>
 </head>
 
@@ -156,6 +171,13 @@
       <button class="btn sec chico" id="btnVolver">← Volver</button>
       <div id="detalleEncabezado" class="tarjeta" style="margin-top:12px"></div>
       <div id="detalleArticulos"></div>
+
+      <!-- Etiqueta con codigo QR para pegar en el recipiente -->
+      <div id="detalleQR" class="tarjeta">
+        <div id="qrImagen"></div>
+        <div class="etiqueta-codigo" id="qrCodigo"></div>
+        <button class="btn sec chico" onclick="window.print()">🖨️ Imprimir etiqueta</button>
+      </div>
 
       <details class="tarjeta" open>
         <summary><strong>➕ Guardar un artículo aquí</strong></summary>
@@ -232,7 +254,10 @@
   const SUPABASE_ANON_KEY = 'sb_publishable_a4EM9Sjk_n4s4_U13Jp02w_E7m78iBt';
 
   // El "cliente" es el objeto que habla con la base de datos.
-  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Si la URL se pego con algo extra (ej. /rest/v1/), nos quedamos solo con
+  // https://xxxx.supabase.co, que es lo que espera la libreria.
+  const URL_LIMPIA = SUPABASE_URL.trim().replace(/(\.supabase\.co).*$/, '$1');
+  const db = supabase.createClient(URL_LIMPIA, SUPABASE_ANON_KEY.trim());
 
   // Recipiente que se esta viendo en la pantalla de detalle
   let recipienteActual = null;
@@ -307,7 +332,13 @@
     $('menu').classList.toggle('oculto', !conectado);
     $('btnSalir').classList.toggle('oculto', !conectado);
     if (conectado) {
-      irA('recipientes');
+      // Si la direccion trae ?r=C-01 (vino de un QR), abre esa caja directo
+      const codigoQR = new URLSearchParams(location.search).get('r');
+      if (codigoQR) {
+        abrirPorCodigo(codigoQR);
+      } else {
+        irA('recipientes');
+      }
     } else {
       mostrarPantalla('login');
     }
@@ -390,6 +421,7 @@
       <div class="fila"><span class="codigo">${escapar(rec.codigo)}</span><span class="chip">${escapar(rec.tipo)}</span></div>
       <div>${escapar(rec.descripcion)} ${rec.color ? '· ' + escapar(rec.color) : ''}</div>
       <div class="suave">📍 ${escapar(rec.ubicacion)}</div>`;
+    dibujarQR(rec.codigo);
 
     // Articulos que contiene. "categoria(nombre)" hace el JOIN con categoria:
     // SELECT a.*, c.nombre FROM articulo a JOIN categoria c ... WHERE a.id_recipiente = id
@@ -413,6 +445,32 @@
           </div>`).join('');
 
     llenarSelect('artCategoria', 'categoria', 'id_categoria');
+  }
+
+  // ---------------------------------------------------------------------
+  // 3.6b CODIGO QR
+  //      El QR guarda una direccion web como
+  //      https://usuario.github.io/inventario/?r=C-01
+  //      Al escanearlo, el celular abre la app y esta abre la caja C-01.
+  // ---------------------------------------------------------------------
+  function dibujarQR(codigo) {
+    const direccion = location.origin + location.pathname + '?r=' + encodeURIComponent(codigo);
+    const qr = qrcode(0, 'M');   // 0 = tamano automatico, M = correccion de errores media
+    qr.addData(direccion);
+    qr.make();
+    $('qrImagen').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 2 });
+    $('qrCodigo').textContent = codigo;
+  }
+
+  // Busca el recipiente por su codigo y lo abre
+  async function abrirPorCodigo(codigo) {
+    const { data, error } = await db.from('recipiente')
+      .select('id_recipiente').eq('codigo', codigo.toUpperCase()).maybeSingle();
+    // Quitamos ?r=... de la direccion para que al recargar no vuelva a abrirse
+    history.replaceState(null, '', location.pathname);
+    if (error) return mostrarError(error);
+    if (!data) { avisar('No existe el recipiente ' + codigo, 'error'); return irA('recipientes'); }
+    abrirRecipiente(data.id_recipiente);
   }
 
   $('btnVolver').addEventListener('click', () => irA('recipientes'));
@@ -452,21 +510,21 @@
     abrirRecipiente(recipienteActual.id_recipiente);
   }
 
-    // UPDATE articulo SET cantidad = nueva WHERE id_articulo = id
-    async function editarCantidad(idArticulo, cantidadActual) {
-      const texto = prompt('¿Cuántas unidades hay ahora?', cantidadActual);
-      if (texto === null) return;              // tocó Cancelar
-      const nueva = Number(texto);
-      if (!Number.isInteger(nueva) || nueva < 1) {
-        return avisar('Escribe un número entero mayor que 0', 'error');
-      }
-      const { error } = await db.from('articulo')
-        .update({ cantidad: nueva }).eq('id_articulo', idArticulo);
-      if (error) return mostrarError(error);
-      avisar('Cantidad actualizada');
-      abrirRecipiente(recipienteActual.id_recipiente);
+  // UPDATE articulo SET cantidad = nueva WHERE id_articulo = id
+  async function editarCantidad(idArticulo, cantidadActual) {
+    const texto = prompt('¿Cuántas unidades hay ahora?', cantidadActual);
+    if (texto === null) return;              // tocó Cancelar
+    const nueva = Number(texto);
+    if (!Number.isInteger(nueva) || nueva < 1) {
+      return avisar('Escribe un número entero mayor que 0', 'error');
     }
-    
+    const { error } = await db.from('articulo')
+      .update({ cantidad: nueva }).eq('id_articulo', idArticulo);
+    if (error) return mostrarError(error);
+    avisar('Cantidad actualizada');
+    abrirRecipiente(recipienteActual.id_recipiente);
+  }
+
   // UPDATE articulo SET estado = 'RETIRADO', id_recipiente = NULL WHERE id_articulo = id
   // El trigger registra el RETIRO. El articulo no se borra: queda en el historial.
   async function retirar(idArticulo) {
