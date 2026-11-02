@@ -151,10 +151,8 @@
           <label for="recCodigo">Código (ej. C-05)</label>
           <input id="recCodigo" required maxlength="10">
           <label for="recTipo">Tipo</label>
-          <select id="recTipo">
-            <option>CAJA</option><option>BOLSA</option><option>CANASTA</option>
-            <option>MALETA</option><option>OTRO</option>
-          </select>
+          <!-- Las opciones se cargan de la tabla tipo_recipiente -->
+          <select id="recTipo" required></select>
           <label for="recColor">Color</label>
           <input id="recColor" maxlength="30">
           <label for="recDescripcion">Descripción</label>
@@ -230,6 +228,14 @@
           <button class="btn chico" type="submit">Agregar</button>
         </form>
       </div>
+      <div class="tarjeta">
+        <h3>Tipos de recipiente</h3>
+        <div id="listaTipos" class="suave"></div>
+        <form id="formTipo" class="fila" style="margin-top:8px">
+          <input id="nuevoTipo" placeholder="Ej. BAUL" required maxlength="30">
+          <button class="btn chico" type="submit">Agregar</button>
+        </form>
+      </div>
     </section>
   </main>
 
@@ -250,8 +256,8 @@
   //     (Project Settings > API Keys). Esta llave ("publishable" o "anon") puede ser publica porque
   //     la seguridad RLS de la base de datos bloquea a quien no inicio sesion.
   // ---------------------------------------------------------------------
-  const SUPABASE_URL = 'https://vpcjczfowemkwvitbsla.supabase.co';
-  const SUPABASE_ANON_KEY = 'sb_publishable_a4EM9Sjk_n4s4_U13Jp02w_E7m78iBt';
+  const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+  const SUPABASE_ANON_KEY = 'PEGA-AQUI-TU-LLAVE-PUBLICA';
 
   // El "cliente" es el objeto que habla con la base de datos.
   // Si la URL se pego con algo extra (ej. /rest/v1/), nos quedamos solo con
@@ -388,6 +394,7 @@
           </div>`).join('');
 
     llenarSelect('recUbicacion', 'ubicacion', 'id_ubicacion');
+    llenarSelect('recTipo', 'tipo_recipiente', 'id_tipo');
   }
 
   // INSERT INTO recipiente (codigo, tipo, color, descripcion, id_ubicacion) VALUES (...)
@@ -395,7 +402,7 @@
     evento.preventDefault();
     const { error } = await db.from('recipiente').insert({
       codigo: $('recCodigo').value.trim().toUpperCase(),
-      tipo: $('recTipo').value,
+      id_tipo: Number($('recTipo').value),
       color: $('recColor').value.trim() || null,
       descripcion: $('recDescripcion').value.trim() || null,
       id_ubicacion: Number($('recUbicacion').value),
@@ -608,7 +615,7 @@
   // 3.9 AJUSTES: ubicaciones y categorias
   // ---------------------------------------------------------------------
   async function cargarAjustes() {
-    for (const [tabla, idLista] of [['ubicacion', 'listaUbicaciones'], ['categoria', 'listaCategorias']]) {
+    for (const [tabla, idLista] of [['ubicacion', 'listaUbicaciones'], ['categoria', 'listaCategorias'], ['tipo_recipiente', 'listaTipos']]) {
       const { data, error } = await db.from(tabla).select('nombre').order('nombre');
       if (error) return mostrarError(error);
       $(idLista).innerHTML = data.map(f => escapar(f.nombre)).join(' · ') || 'Ninguna todavía';
@@ -625,6 +632,7 @@
   }
   $('formUbicacion').addEventListener('submit', e => agregarNombre(e, 'ubicacion', 'nuevaUbicacion'));
   $('formCategoria').addEventListener('submit', e => agregarNombre(e, 'categoria', 'nuevaCategoria'));
+  $('formTipo').addEventListener('submit', e => agregarNombre(e, 'tipo_recipiente', 'nuevoTipo'));
   </script>
 </body>
 </html>
