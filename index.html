@@ -406,6 +406,7 @@
             <div class="suave">${escapar(a.categoria?.nombre)} ${a.descripcion ? '· ' + escapar(a.descripcion) : ''}</div>
             ${a.fecha_vencimiento ? `<div class="suave">⏰ Vence: ${a.fecha_vencimiento}</div>` : ''}
             <div class="fila" style="justify-content:flex-start; margin-top:8px">
+              <button class="btn sec chico" onclick="editarCantidad(${a.id_articulo}, ${a.cantidad})">Cantidad</button>
               <button class="btn sec chico" onclick="trasladar(${a.id_articulo})">Mover a otro</button>
               <button class="btn peligro chico" onclick="retirar(${a.id_articulo})">Sacar de la casa</button>
             </div>
@@ -451,6 +452,21 @@
     abrirRecipiente(recipienteActual.id_recipiente);
   }
 
+    // UPDATE articulo SET cantidad = nueva WHERE id_articulo = id
+    async function editarCantidad(idArticulo, cantidadActual) {
+      const texto = prompt('¿Cuántas unidades hay ahora?', cantidadActual);
+      if (texto === null) return;              // tocó Cancelar
+      const nueva = Number(texto);
+      if (!Number.isInteger(nueva) || nueva < 1) {
+        return avisar('Escribe un número entero mayor que 0', 'error');
+      }
+      const { error } = await db.from('articulo')
+        .update({ cantidad: nueva }).eq('id_articulo', idArticulo);
+      if (error) return mostrarError(error);
+      avisar('Cantidad actualizada');
+      abrirRecipiente(recipienteActual.id_recipiente);
+    }
+    
   // UPDATE articulo SET estado = 'RETIRADO', id_recipiente = NULL WHERE id_articulo = id
   // El trigger registra el RETIRO. El articulo no se borra: queda en el historial.
   async function retirar(idArticulo) {
