@@ -285,7 +285,16 @@
       email: $('correo').value,
       password: $('clave').value,
     });
-    if (error) avisar('Correo o contraseña incorrectos', 'error');
+    if (error) {
+      // Mostramos el motivo real para poder diagnosticar el problema
+      console.error(error);
+      let mensaje = 'No se pudo entrar: ' + error.message;
+      if (error.message.includes('Invalid login credentials')) mensaje = 'Correo o contraseña incorrectos';
+      if (error.message.includes('Email not confirmed')) mensaje = 'El usuario existe pero no está confirmado (marca Auto Confirm User en Supabase)';
+      if (error.message.includes('Invalid API key')) mensaje = 'La llave pública (SUPABASE_ANON_KEY) está mal copiada';
+      if (error.message.includes('Failed to fetch')) mensaje = 'No hay conexión con Supabase: revisa SUPABASE_URL';
+      avisar(mensaje, 'error');
+    }
   });
 
   $('btnSalir').addEventListener('click', () => db.auth.signOut());
