@@ -1,0 +1,543 @@
+<!doctype html>
+<!--
+  =====================================================================
+  INVENTARIO DE RECIPIENTES DEL HOGAR
+  Una app web de un solo archivo. Tiene tres partes:
+    1. HTML  -> la estructura: que hay en cada pantalla.
+    2. CSS   -> la presentacion: colores, tamanos, que se vea bien en el celular.
+    3. JS    -> el comportamiento: hablar con la base de datos y pintar los datos.
+  La base de datos vive en Supabase (PostgreSQL). Esta pagina se comunica
+  con ella por internet usando la libreria supabase-js.
+  =====================================================================
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <!-- Esta linea hace que la pagina se ajuste al ancho del celular -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mis recipientes</title>
+
+  <!-- Libreria oficial de Supabase (version fija para que nada cambie solo) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/dist/umd/supabase.js"></script>
+
+  <style>
+    /* ---------- Variables de color (se cambian aqui y aplican en todo) ---------- */
+    :root {
+      --fondo: #f5f6f8;
+      --tarjeta: #ffffff;
+      --texto: #1d2330;
+      --suave: #667085;
+      --borde: #dde1e7;
+      --primario: #2563eb;
+      --peligro: #c62828;
+      --ok: #2e7d32;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--fondo);
+      color: var(--texto);
+      font-size: 16px;
+    }
+    header {
+      background: var(--primario);
+      color: #fff;
+      padding: 14px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    main { padding: 16px; max-width: 720px; margin: 0 auto; padding-bottom: 90px; }
+
+    /* Barra de pestanas abajo, como en las apps del celular */
+    nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      display: flex; background: var(--tarjeta);
+      border-top: 1px solid var(--borde);
+    }
+    nav button {
+      flex: 1; border: 0; background: none; padding: 12px 4px;
+      font-size: 13px; color: var(--suave);
+    }
+    nav button.activa { color: var(--primario); font-weight: 600; }
+
+    .tarjeta {
+      background: var(--tarjeta); border: 1px solid var(--borde);
+      border-radius: 10px; padding: 14px; margin-bottom: 12px;
+    }
+    .fila { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .suave { color: var(--suave); font-size: 14px; }
+    .codigo { font-weight: 700; font-size: 18px; }
+    .chip {
+      display: inline-block; padding: 2px 8px; border-radius: 99px;
+      background: #e8eefc; color: var(--primario); font-size: 12px; font-weight: 600;
+    }
+
+    label { display: block; font-size: 14px; margin: 10px 0 4px; color: var(--suave); }
+    input, select, textarea {
+      width: 100%; padding: 10px; font-size: 16px;
+      border: 1px solid var(--borde); border-radius: 8px; background: #fff;
+    }
+    button.btn {
+      padding: 10px 14px; font-size: 15px; border-radius: 8px;
+      border: 1px solid var(--primario); background: var(--primario); color: #fff;
+      margin-top: 12px; cursor: pointer;
+    }
+    button.btn.sec { background: #fff; color: var(--primario); }
+    button.btn.peligro { background: #fff; color: var(--peligro); border-color: var(--peligro); }
+    button.btn.chico { padding: 6px 10px; font-size: 13px; margin-top: 0; }
+
+    .oculto { display: none !important; }
+    #aviso {
+      position: fixed; top: 12px; left: 16px; right: 16px; z-index: 10;
+      padding: 12px; border-radius: 8px; color: #fff; text-align: center;
+    }
+    #aviso.ok { background: var(--ok); }
+    #aviso.error { background: var(--peligro); }
+  </style>
+</head>
+
+<body>
+  <!-- ================================================================
+       1. HTML: cada <section> es una pantalla. JavaScript muestra una
+       y oculta las demas.
+       ================================================================ -->
+  <div id="aviso" class="oculto"></div>
+
+  <header>
+    <h1>📦 Mis recipientes</h1>
+    <button id="btnSalir" class="btn sec chico oculto">Salir</button>
+  </header>
+
+  <main>
+    <!-- Pantalla: iniciar sesion -->
+    <section id="pantalla-login">
+      <div class="tarjeta">
+        <h2>Iniciar sesión</h2>
+        <form id="formLogin">
+          <label for="correo">Correo</label>
+          <input id="correo" type="email" required autocomplete="username">
+          <label for="clave">Contraseña</label>
+          <input id="clave" type="password" required autocomplete="current-password">
+          <button class="btn" type="submit">Entrar</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Pantalla: lista de recipientes -->
+    <section id="pantalla-recipientes" class="oculto">
+      <div id="listaRecipientes"></div>
+
+      <details class="tarjeta">
+        <summary><strong>➕ Nuevo recipiente</strong></summary>
+        <form id="formRecipiente">
+          <label for="recCodigo">Código (ej. C-05)</label>
+          <input id="recCodigo" required maxlength="10">
+          <label for="recTipo">Tipo</label>
+          <select id="recTipo">
+            <option>CAJA</option><option>BOLSA</option><option>CANASTA</option>
+            <option>MALETA</option><option>OTRO</option>
+          </select>
+          <label for="recColor">Color</label>
+          <input id="recColor" maxlength="30">
+          <label for="recDescripcion">Descripción</label>
+          <input id="recDescripcion" maxlength="200">
+          <label for="recUbicacion">Ubicación</label>
+          <select id="recUbicacion" required></select>
+          <button class="btn" type="submit">Guardar recipiente</button>
+        </form>
+      </details>
+    </section>
+
+    <!-- Pantalla: contenido de un recipiente -->
+    <section id="pantalla-detalle" class="oculto">
+      <button class="btn sec chico" id="btnVolver">← Volver</button>
+      <div id="detalleEncabezado" class="tarjeta" style="margin-top:12px"></div>
+      <div id="detalleArticulos"></div>
+
+      <details class="tarjeta" open>
+        <summary><strong>➕ Guardar un artículo aquí</strong></summary>
+        <form id="formArticulo">
+          <label for="artNombre">Nombre</label>
+          <input id="artNombre" required maxlength="100">
+          <label for="artDescripcion">Descripción</label>
+          <input id="artDescripcion" maxlength="250">
+          <label for="artCantidad">Cantidad</label>
+          <input id="artCantidad" type="number" min="1" value="1" required>
+          <label for="artCategoria">Categoría</label>
+          <select id="artCategoria" required></select>
+          <button class="btn" type="submit">Guardar artículo</button>
+        </form>
+      </details>
+      <button class="btn peligro" id="btnBorrarRecipiente">Eliminar este recipiente</button>
+    </section>
+
+    <!-- Pantalla: buscar -->
+    <section id="pantalla-buscar" class="oculto">
+      <div class="tarjeta">
+        <label for="textoBuscar">¿Qué estás buscando?</label>
+        <input id="textoBuscar" type="search" placeholder="Ej. taladro">
+      </div>
+      <div id="resultadosBuscar"></div>
+    </section>
+
+    <!-- Pantalla: historial -->
+    <section id="pantalla-historial" class="oculto">
+      <div id="listaHistorial"></div>
+    </section>
+
+    <!-- Pantalla: ajustes (ubicaciones y categorias) -->
+    <section id="pantalla-ajustes" class="oculto">
+      <div class="tarjeta">
+        <h3>Ubicaciones</h3>
+        <div id="listaUbicaciones" class="suave"></div>
+        <form id="formUbicacion" class="fila" style="margin-top:8px">
+          <input id="nuevaUbicacion" placeholder="Ej. Garaje" required maxlength="60">
+          <button class="btn chico" type="submit">Agregar</button>
+        </form>
+      </div>
+      <div class="tarjeta">
+        <h3>Categorías</h3>
+        <div id="listaCategorias" class="suave"></div>
+        <form id="formCategoria" class="fila" style="margin-top:8px">
+          <input id="nuevaCategoria" placeholder="Ej. Juguetes" required maxlength="60">
+          <button class="btn chico" type="submit">Agregar</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <nav id="menu" class="oculto">
+    <button data-pantalla="recipientes" class="activa">📦<br>Recipientes</button>
+    <button data-pantalla="buscar">🔍<br>Buscar</button>
+    <button data-pantalla="historial">🕘<br>Historial</button>
+    <button data-pantalla="ajustes">⚙️<br>Ajustes</button>
+  </nav>
+
+  <script>
+  /* =====================================================================
+     3. JAVASCRIPT
+     ===================================================================== */
+
+  // ---------------------------------------------------------------------
+  // 3.1 CONFIGURACION: pegue aqui los datos de su proyecto Supabase
+  //     (Project Settings > API Keys). Esta llave ("publishable" o "anon") puede ser publica porque
+  //     la seguridad RLS de la base de datos bloquea a quien no inicio sesion.
+  // ---------------------------------------------------------------------
+  const SUPABASE_URL = 'https://TU-PROYECTO.supabase.co';
+  const SUPABASE_ANON_KEY = 'PEGA-AQUI-TU-LLAVE-PUBLICA';
+
+  // El "cliente" es el objeto que habla con la base de datos.
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  // Recipiente que se esta viendo en la pantalla de detalle
+  let recipienteActual = null;
+
+  // ---------------------------------------------------------------------
+  // 3.2 UTILIDADES
+  // ---------------------------------------------------------------------
+
+  // Atajo para buscar un elemento del HTML por su id
+  const $ = (id) => document.getElementById(id);
+
+  // Evita que un texto escrito por el usuario se interprete como HTML.
+  // (Si alguien guarda "<script>..." como nombre, se muestra como texto.)
+  function escapar(texto) {
+    const div = document.createElement('div');
+    div.textContent = texto ?? '';
+    return div.innerHTML;
+  }
+
+  // Muestra un mensaje arriba durante 3 segundos
+  function avisar(mensaje, tipo = 'ok') {
+    const aviso = $('aviso');
+    aviso.textContent = mensaje;
+    aviso.className = tipo;
+    setTimeout(() => aviso.classList.add('oculto'), 3000);
+  }
+
+  // Traduce los errores de la base de datos a un mensaje claro
+  function mostrarError(error) {
+    console.error(error);
+    let mensaje = error.message;
+    if (error.code === '23505') mensaje = 'Ya existe un registro con ese nombre o código.';
+    if (error.code === '23503') mensaje = 'No se puede: hay otros datos que dependen de este registro.';
+    if (error.code === '23514') mensaje = 'Un dato no cumple las reglas de la base de datos.';
+    avisar(mensaje, 'error');
+  }
+
+  // Cambia de pantalla: oculta todas y muestra la pedida
+  function mostrarPantalla(nombre) {
+    document.querySelectorAll('main > section').forEach(s => s.classList.add('oculto'));
+    $('pantalla-' + nombre).classList.remove('oculto');
+    document.querySelectorAll('nav button').forEach(b =>
+      b.classList.toggle('activa', b.dataset.pantalla === nombre));
+  }
+
+  // ---------------------------------------------------------------------
+  // 3.3 INICIO DE SESION
+  // ---------------------------------------------------------------------
+  $('formLogin').addEventListener('submit', async (evento) => {
+    evento.preventDefault(); // evita que el formulario recargue la pagina
+    const { error } = await db.auth.signInWithPassword({
+      email: $('correo').value,
+      password: $('clave').value,
+    });
+    if (error) avisar('Correo o contraseña incorrectos', 'error');
+  });
+
+  $('btnSalir').addEventListener('click', () => db.auth.signOut());
+
+  // Se ejecuta cada vez que alguien entra o sale
+  db.auth.onAuthStateChange((_evento, sesion) => {
+    const conectado = !!sesion;
+    $('menu').classList.toggle('oculto', !conectado);
+    $('btnSalir').classList.toggle('oculto', !conectado);
+    if (conectado) {
+      irA('recipientes');
+    } else {
+      mostrarPantalla('login');
+    }
+  });
+
+  // ---------------------------------------------------------------------
+  // 3.4 NAVEGACION ENTRE PESTANAS
+  // ---------------------------------------------------------------------
+  function irA(pantalla) {
+    mostrarPantalla(pantalla);
+    if (pantalla === 'recipientes') cargarRecipientes();
+    if (pantalla === 'historial') cargarHistorial();
+    if (pantalla === 'ajustes') cargarAjustes();
+    if (pantalla === 'buscar') $('textoBuscar').focus();
+  }
+  document.querySelectorAll('nav button').forEach(boton =>
+    boton.addEventListener('click', () => irA(boton.dataset.pantalla)));
+
+  // Llena un <select> con filas de una tabla
+  async function llenarSelect(idSelect, tabla, campoId) {
+    const { data, error } = await db.from(tabla).select(`${campoId}, nombre`).order('nombre');
+    if (error) return mostrarError(error);
+    $(idSelect).innerHTML = data
+      .map(fila => `<option value="${fila[campoId]}">${escapar(fila.nombre)}</option>`)
+      .join('');
+  }
+
+  // ---------------------------------------------------------------------
+  // 3.5 RECIPIENTES
+  //     SQL equivalente:
+  //     SELECT * FROM vw_resumen_recipiente ORDER BY codigo;
+  // ---------------------------------------------------------------------
+  async function cargarRecipientes() {
+    const { data, error } = await db.from('vw_resumen_recipiente').select('*').order('codigo');
+    if (error) return mostrarError(error);
+
+    $('listaRecipientes').innerHTML = data.length === 0
+      ? '<p class="suave">Aún no hay recipientes. Crea el primero abajo.</p>'
+      : data.map(r => `
+          <div class="tarjeta" onclick="abrirRecipiente(${r.id_recipiente})" style="cursor:pointer">
+            <div class="fila">
+              <span class="codigo">${escapar(r.codigo)}</span>
+              <span class="chip">${escapar(r.tipo)}</span>
+            </div>
+            <div>${escapar(r.descripcion)} ${r.color ? '· ' + escapar(r.color) : ''}</div>
+            <div class="suave">📍 ${escapar(r.ubicacion)} · ${r.articulos_distintos} artículo(s), ${r.unidades} unidad(es)</div>
+          </div>`).join('');
+
+    llenarSelect('recUbicacion', 'ubicacion', 'id_ubicacion');
+  }
+
+  // INSERT INTO recipiente (codigo, tipo, color, descripcion, id_ubicacion) VALUES (...)
+  $('formRecipiente').addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const { error } = await db.from('recipiente').insert({
+      codigo: $('recCodigo').value.trim().toUpperCase(),
+      tipo: $('recTipo').value,
+      color: $('recColor').value.trim() || null,
+      descripcion: $('recDescripcion').value.trim() || null,
+      id_ubicacion: Number($('recUbicacion').value),
+    });
+    if (error) return mostrarError(error);
+    evento.target.reset();
+    avisar('Recipiente creado');
+    cargarRecipientes();
+  });
+
+  // ---------------------------------------------------------------------
+  // 3.6 DETALLE DE UN RECIPIENTE (que hay adentro)
+  // ---------------------------------------------------------------------
+  async function abrirRecipiente(id) {
+    mostrarPantalla('detalle');
+
+    // Datos del recipiente
+    const { data: rec, error } = await db.from('vw_resumen_recipiente')
+      .select('*').eq('id_recipiente', id).single();
+    if (error) return mostrarError(error);
+    recipienteActual = rec;
+    $('detalleEncabezado').innerHTML = `
+      <div class="fila"><span class="codigo">${escapar(rec.codigo)}</span><span class="chip">${escapar(rec.tipo)}</span></div>
+      <div>${escapar(rec.descripcion)} ${rec.color ? '· ' + escapar(rec.color) : ''}</div>
+      <div class="suave">📍 ${escapar(rec.ubicacion)}</div>`;
+
+    // Articulos que contiene. "categoria(nombre)" hace el JOIN con categoria:
+    // SELECT a.*, c.nombre FROM articulo a JOIN categoria c ... WHERE a.id_recipiente = id
+    const { data: articulos, error: e2 } = await db.from('articulo')
+      .select('id_articulo, nombre, descripcion, cantidad, categoria(nombre)')
+      .eq('id_recipiente', id).order('nombre');
+    if (e2) return mostrarError(e2);
+
+    $('detalleArticulos').innerHTML = articulos.length === 0
+      ? '<p class="suave">Este recipiente está vacío.</p>'
+      : articulos.map(a => `
+          <div class="tarjeta">
+            <div class="fila"><strong>${escapar(a.nombre)}</strong><span class="suave">× ${a.cantidad}</span></div>
+            <div class="suave">${escapar(a.categoria?.nombre)} ${a.descripcion ? '· ' + escapar(a.descripcion) : ''}</div>
+            <div class="fila" style="justify-content:flex-start; margin-top:8px">
+              <button class="btn sec chico" onclick="trasladar(${a.id_articulo})">Mover a otro</button>
+              <button class="btn peligro chico" onclick="retirar(${a.id_articulo})">Sacar de la casa</button>
+            </div>
+          </div>`).join('');
+
+    llenarSelect('artCategoria', 'categoria', 'id_categoria');
+  }
+
+  $('btnVolver').addEventListener('click', () => irA('recipientes'));
+
+  // INSERT INTO articulo (...) VALUES (...)
+  // El trigger de la base de datos registra el INGRESO en movimiento.
+  $('formArticulo').addEventListener('submit', async (evento) => {
+    evento.preventDefault();
+    const { error } = await db.from('articulo').insert({
+      nombre: $('artNombre').value.trim(),
+      descripcion: $('artDescripcion').value.trim() || null,
+      cantidad: Number($('artCantidad').value),
+      id_categoria: Number($('artCategoria').value),
+      id_recipiente: recipienteActual.id_recipiente,
+    });
+    if (error) return mostrarError(error);
+    evento.target.reset();
+    avisar('Artículo guardado');
+    abrirRecipiente(recipienteActual.id_recipiente);
+  });
+
+  // UPDATE articulo SET id_recipiente = destino WHERE id_articulo = id
+  // El trigger registra el TRASLADO.
+  async function trasladar(idArticulo) {
+    const codigo = prompt('¿A qué recipiente lo mueves? Escribe el código (ej. C-02):');
+    if (!codigo) return;
+    const { data: destino, error } = await db.from('recipiente')
+      .select('id_recipiente').eq('codigo', codigo.trim().toUpperCase()).maybeSingle();
+    if (error) return mostrarError(error);
+    if (!destino) return avisar('No existe un recipiente con ese código', 'error');
+
+    const { error: e2 } = await db.from('articulo')
+      .update({ id_recipiente: destino.id_recipiente }).eq('id_articulo', idArticulo);
+    if (e2) return mostrarError(e2);
+    avisar('Artículo movido');
+    abrirRecipiente(recipienteActual.id_recipiente);
+  }
+
+  // UPDATE articulo SET estado = 'RETIRADO', id_recipiente = NULL WHERE id_articulo = id
+  // El trigger registra el RETIRO. El articulo no se borra: queda en el historial.
+  async function retirar(idArticulo) {
+    if (!confirm('¿Sacar este artículo? Quedará registrado en el historial.')) return;
+    const { error } = await db.from('articulo')
+      .update({ estado: 'RETIRADO', id_recipiente: null }).eq('id_articulo', idArticulo);
+    if (error) return mostrarError(error);
+    avisar('Artículo retirado');
+    abrirRecipiente(recipienteActual.id_recipiente);
+  }
+
+  // DELETE FROM recipiente WHERE id_recipiente = id
+  // Si tiene articulos o historial, la llave foranea lo impide (error 23503).
+  $('btnBorrarRecipiente').addEventListener('click', async () => {
+    if (!confirm(`¿Eliminar ${recipienteActual.codigo}?`)) return;
+    const { error } = await db.from('recipiente')
+      .delete().eq('id_recipiente', recipienteActual.id_recipiente);
+    if (error) return mostrarError(error);
+    avisar('Recipiente eliminado');
+    irA('recipientes');
+  });
+
+  // ---------------------------------------------------------------------
+  // 3.7 BUSCAR: SELECT ... WHERE nombre ILIKE '%texto%'
+  // ---------------------------------------------------------------------
+  let temporizador;
+  $('textoBuscar').addEventListener('input', () => {
+    // Espera 300 ms despues de la ultima tecla para no consultar en cada letra
+    clearTimeout(temporizador);
+    temporizador = setTimeout(buscar, 300);
+  });
+
+  async function buscar() {
+    const texto = $('textoBuscar').value.trim();
+    if (texto.length < 2) { $('resultadosBuscar').innerHTML = ''; return; }
+
+    const { data, error } = await db.from('articulo')
+      .select('nombre, cantidad, estado, recipiente(id_recipiente, codigo, ubicacion(nombre))')
+      .ilike('nombre', `%${texto}%`).order('nombre').limit(30);
+    if (error) return mostrarError(error);
+
+    $('resultadosBuscar').innerHTML = data.length === 0
+      ? '<p class="suave">No encontré nada con ese nombre.</p>'
+      : data.map(a => a.recipiente
+          ? `<div class="tarjeta" onclick="abrirRecipiente(${a.recipiente.id_recipiente})" style="cursor:pointer">
+               <strong>${escapar(a.nombre)}</strong> × ${a.cantidad}
+               <div class="suave">Está en <strong>${escapar(a.recipiente.codigo)}</strong> · 📍 ${escapar(a.recipiente.ubicacion?.nombre)}</div>
+             </div>`
+          : `<div class="tarjeta"><strong>${escapar(a.nombre)}</strong>
+               <div class="suave">Retirado (ya no está guardado)</div></div>`
+        ).join('');
+  }
+
+  // ---------------------------------------------------------------------
+  // 3.8 HISTORIAL. Como movimiento tiene DOS llaves foraneas hacia
+  //     recipiente, se indica cual usar con el nombre de la restriccion.
+  // ---------------------------------------------------------------------
+  async function cargarHistorial() {
+    const { data, error } = await db.from('movimiento')
+      .select(`fecha, tipo, articulo(nombre),
+               origen:recipiente!fk_movimiento_origen(codigo),
+               destino:recipiente!fk_movimiento_destino(codigo)`)
+      .order('fecha', { ascending: false }).limit(50);
+    if (error) return mostrarError(error);
+
+    const iconos = { INGRESO: '⬇️', RETIRO: '⬆️', TRASLADO: '🔁' };
+    $('listaHistorial').innerHTML = data.length === 0
+      ? '<p class="suave">Todavía no hay movimientos.</p>'
+      : data.map(m => `
+          <div class="tarjeta">
+            <div class="fila"><strong>${iconos[m.tipo]} ${escapar(m.articulo?.nombre)}</strong><span class="chip">${m.tipo}</span></div>
+            <div class="suave">
+              ${m.origen ? 'De ' + escapar(m.origen.codigo) : ''}
+              ${m.destino ? ' a ' + escapar(m.destino.codigo) : ''}
+              · ${new Date(m.fecha).toLocaleString('es-CO')}
+            </div>
+          </div>`).join('');
+  }
+
+  // ---------------------------------------------------------------------
+  // 3.9 AJUSTES: ubicaciones y categorias
+  // ---------------------------------------------------------------------
+  async function cargarAjustes() {
+    for (const [tabla, idLista] of [['ubicacion', 'listaUbicaciones'], ['categoria', 'listaCategorias']]) {
+      const { data, error } = await db.from(tabla).select('nombre').order('nombre');
+      if (error) return mostrarError(error);
+      $(idLista).innerHTML = data.map(f => escapar(f.nombre)).join(' · ') || 'Ninguna todavía';
+    }
+  }
+
+  async function agregarNombre(evento, tabla, idInput) {
+    evento.preventDefault();
+    const { error } = await db.from(tabla).insert({ nombre: $(idInput).value.trim() });
+    if (error) return mostrarError(error);
+    evento.target.reset();
+    avisar('Agregado');
+    cargarAjustes();
+  }
+  $('formUbicacion').addEventListener('submit', e => agregarNombre(e, 'ubicacion', 'nuevaUbicacion'));
+  $('formCategoria').addEventListener('submit', e => agregarNombre(e, 'categoria', 'nuevaCategoria'));
+  </script>
+</body>
+</html>
