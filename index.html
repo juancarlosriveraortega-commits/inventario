@@ -166,6 +166,8 @@
           <input id="artDescripcion" maxlength="250">
           <label for="artCantidad">Cantidad</label>
           <input id="artCantidad" type="number" min="1" value="1" required>
+          <label for="artVence">Fecha de vencimiento (opcional)</label>
+          <input id="artVence" type="date">
           <label for="artCategoria">Categoría</label>
           <select id="artCategoria" required></select>
           <button class="btn" type="submit">Guardar artículo</button>
@@ -392,7 +394,7 @@
     // Articulos que contiene. "categoria(nombre)" hace el JOIN con categoria:
     // SELECT a.*, c.nombre FROM articulo a JOIN categoria c ... WHERE a.id_recipiente = id
     const { data: articulos, error: e2 } = await db.from('articulo')
-      .select('id_articulo, nombre, descripcion, cantidad, categoria(nombre)')
+      .select('id_articulo, nombre, descripcion, cantidad, fecha_vencimiento, categoria(nombre)')
       .eq('id_recipiente', id).order('nombre');
     if (e2) return mostrarError(e2);
 
@@ -402,6 +404,7 @@
           <div class="tarjeta">
             <div class="fila"><strong>${escapar(a.nombre)}</strong><span class="suave">× ${a.cantidad}</span></div>
             <div class="suave">${escapar(a.categoria?.nombre)} ${a.descripcion ? '· ' + escapar(a.descripcion) : ''}</div>
+            ${a.fecha_vencimiento ? `<div class="suave">⏰ Vence: ${a.fecha_vencimiento}</div>` : ''}
             <div class="fila" style="justify-content:flex-start; margin-top:8px">
               <button class="btn sec chico" onclick="trasladar(${a.id_articulo})">Mover a otro</button>
               <button class="btn peligro chico" onclick="retirar(${a.id_articulo})">Sacar de la casa</button>
@@ -423,6 +426,7 @@
       cantidad: Number($('artCantidad').value),
       id_categoria: Number($('artCategoria').value),
       id_recipiente: recipienteActual.id_recipiente,
+      fecha_vencimiento: $('artVence').value || null,
     });
     if (error) return mostrarError(error);
     evento.target.reset();
